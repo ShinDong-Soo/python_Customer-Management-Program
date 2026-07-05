@@ -42,13 +42,27 @@ def get_next_id(customers):
 def add_customer():
     customers = load_customers()
 
+    name = input("이름: ").strip()
+    if not name:
+        print("이름은 필수 입력입니다.")
+        return
+
+    phone = input("연락처: ").strip()
+    if not phone:
+        print("연락처는 필수 입력입니다.")
+        return
+
+    birth = input("생년월일: ")
+    skin_type = input("피부 타입: ")
+    memo = input("메모: ")
+
     customer = {
         "id": str(get_next_id(customers)),
-        "name": input("이름: "),
-        "phone": input("연락처: "),
-        "birth": input("생년월일: "),
-        "skin_type": input("피부 타입: "),
-        "memo": input("메모: "),
+        "name": name,
+        "phone": phone,
+        "birth": birth,
+        "skin_type": skin_type,
+        "memo": memo
     }
 
     customers.append(customer)
@@ -64,14 +78,11 @@ def show_customers():
         print("등록된 고객이 없습니다.")
         return
 
+    print(f"\n총 고객 수 : {len(customers)}명\n")
+
     for customer in customers:
-        print("-" * 40)
-        print(f"ID: {customer['id']}")
-        print(f"이름: {customer['name']}")
-        print(f"연락처: {customer['phone']}")
-        print(f"생년월일: {customer['birth']}")
-        print(f"피부 타입: {customer['skin_type']}")
-        print(f"메모: {customer['memo']}")
+        print_customer(customer)
+    
 
 
 def search_customer():
@@ -89,12 +100,8 @@ def search_customer():
         return
 
     for customer in results:
-        print("-" * 40)
-        print(f"ID: {customer['id']}")
-        print(f"이름: {customer['name']}")
-        print(f"연락처: {customer['phone']}")
-        print(f"피부 타입: {customer['skin_type']}")
-        print(f"메모: {customer['memo']}")
+        print_customer(customer)
+
 
 
 def update_customer():
@@ -143,6 +150,12 @@ def delete_customer():
         print("해당 ID의 고객을 찾을 수 없습니다.")
         return
 
+    confirm = input("정말 삭제하시겠습니까? (Y/N): ")
+
+    if confirm.upper() != "Y":
+        print("삭제가 취소되었습니다.")
+        return
+
     save_customers(new_customers)
     print("고객 정보가 삭제되었습니다.")
 
@@ -155,6 +168,16 @@ def show_menu():
     print("4. 고객 정보 수정")
     print("5. 고객 삭제")
     print("0. 종료")
+
+
+def print_customer(customer):
+    print("-" * 40)
+    print(f"ID: {customer['id']}")
+    print(f"이름: {customer['name']}")
+    print(f"연락처: {customer['phone']}")
+    print(f"생년월일: {customer['birth']}")
+    print(f"피부 타입: {customer['skin_type']}")
+    print(f"메모: {customer['memo']}")
 
 
 def main():

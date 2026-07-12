@@ -69,6 +69,60 @@ def _row_to_visit(row):
     }
 
 
+def _row_to_customer_with_stats(row):
+    customer = _row_to_customer(row)
+    customer["last_visit_date"] = row["last_visit_date"] or ""
+    customer["visit_count"] = str(row["visit_count"] or 0)
+    customer["total_price"] = str(row["total_price"] or 0)
+    return customer
+
+
+_CUSTOMER_STATS_SELECT = """
+    SELECT
+        c.id,
+        c.name,
+        c.phone,
+        c.birth,
+        c.skin_type,
+        c.memo,
+        c.created_at,
+        MAX(v.date) AS last_visit_date,
+        COUNT(v.id) AS visit_count,
+        COALESCE(SUM(v.price), 0) AS total_price
+    FROM customers c
+    LEFT JOIN visits v ON c.id = v.customer_id
+"""
+
+
+def load_customers_with_stats():
+    conn = get_connection()
+    rows = conn.execute(
+        f"""
+        {_CUSTOMER_STATS_SELECT}
+        GROUP BY c.id
+        ORDER BY c.id
+        """
+    ).fetchall()
+    conn.close()
+    return [_row_to_customer_with_stats(row) for row in rows]
+
+
+def search_customers_with_stats(keyword):
+    conn = get_connection()
+    pattern = f"%{keyword}%"
+    rows = conn.execute(
+        f"""
+        {_CUSTOMER_STATS_SELECT}
+        WHERE c.name LIKE ? OR c.phone LIKE ?
+        GROUP BY c.id
+        ORDER BY c.id
+        """,
+        (pattern, pattern),
+    ).fetchall()
+    conn.close()
+    return [_row_to_customer_with_stats(row) for row in rows]
+
+
 def load_customers():
     conn = get_connection()
     rows = conn.execute(

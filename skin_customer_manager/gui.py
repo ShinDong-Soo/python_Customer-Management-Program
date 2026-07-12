@@ -12,8 +12,9 @@ from database import (
     initialize_database,
     insert_customer,
     insert_visit,
-    load_customers,
+    load_customers_with_stats,
     search_customers,
+    search_customers_with_stats,
     update_customer as db_update_customer,
     update_visit as db_update_visit,
 )
@@ -31,7 +32,7 @@ class SkinShopApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("피부관리샵 고객 관리")
-        self.geometry("960x640")
+        self.geometry("1100x680")
         self.minsize(800, 560)
 
         initialize_database()
@@ -58,6 +59,16 @@ class SkinShopApp(tk.Tk):
 
         self.selected_customer_id = None
         self.selected_visit_id = None
+
+        self.current_customers = []
+        self.current_visits = []
+        self.customer_sort_column = "id"
+        self.customer_sort_reverse = False
+        self.visit_sort_column = "date"
+        self.visit_sort_reverse = True
+
+        self.customer_headings = {}
+        self.visit_headings = {}
 
     def _create_widgets(self):
         self._create_backup_bar()
@@ -140,7 +151,17 @@ class SkinShopApp(tk.Tk):
         table_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         self.customer_table_frame = table_frame
 
-        columns = ("id", "name", "phone", "birth", "skin_type", "created_at")
+        columns = (
+            "id",
+            "name",
+            "phone",
+            "birth",
+            "skin_type",
+            "last_visit_date",
+            "visit_count",
+            "total_price",
+            "created_at",
+        )
         self.customer_tree = ttk.Treeview(
             table_frame,
             columns=columns,
@@ -148,25 +169,35 @@ class SkinShopApp(tk.Tk):
             height=12,
         )
 
-        headings = {
+        self.customer_headings = {
             "id": "ID",
             "name": "이름",
             "phone": "연락처",
             "birth": "생년월일",
             "skin_type": "피부 타입",
+            "last_visit_date": "최근 방문일",
+            "visit_count": "방문 횟수",
+            "total_price": "누적 금액",
             "created_at": "등록일",
         }
         widths = {
-            "id": 50,
-            "name": 100,
-            "phone": 120,
-            "birth": 100,
-            "skin_type": 80,
-            "created_at": 140,
+            "id": 45,
+            "name": 90,
+            "phone": 110,
+            "birth": 90,
+            "skin_type": 70,
+            "last_visit_date": 95,
+            "visit_count": 70,
+            "total_price": 80,
+            "created_at": 130,
         }
 
         for column in columns:
-            self.customer_tree.heading(column, text=headings[column])
+            self.customer_tree.heading(
+                column,
+                text=self.customer_headings[column],
+                command=lambda col=column: self._sort_customer_tree(col),
+            )
             self.customer_tree.column(column, width=widths[column], anchor=tk.W)
 
         scrollbar = ttk.Scrollbar(
@@ -248,7 +279,7 @@ class SkinShopApp(tk.Tk):
             height=12,
         )
 
-        headings = {
+        self.visit_headings = {
             "visit_id": "방문 ID",
             "customer_name": "고객명",
             "customer_id": "고객 ID",
@@ -268,7 +299,11 @@ class SkinShopApp(tk.Tk):
         }
 
         for column in columns:
-            self.visit_tree.heading(column, text=headings[column])
+            self.visit_tree.heading(
+                column,
+                text=self.visit_headings[column],
+                command=lambda col=column: self._sort_visit_tree(col),
+            )
             self.visit_tree.column(column, width=widths[column], anchor=tk.W)
 
         scrollbar = ttk.Scrollbar(
@@ -373,7 +408,76 @@ class SkinShopApp(tk.Tk):
         )
         ttk.Button(button_frame, text="닫기", command=dialog.destroy).pack(side=tk.LEFT)
 
-    def _populate_customer_tree(self, customers):
+    def _sort_items(self, items, column, reverse, numeric_columns, date_columns):
+        def sort_key(item):
+            value = item.get(column, "")
+            if column in numeric_columns:
+                try:
+                    return int(value)
+                except (ValueError, TypeError):
+                    return 0
+            if column in date_columns:
+                return value or "0000-00-00"
+            return str(value).lower()
+
+        return sorted(items, key=sort_key, reverse=reverse)
+
+    def _update_tree_headings(self, tree, headings, sort_column, sort_reverse):
+        for column, label in headings.items():
+            if column == sort_column:
+                arrow = " ▼" if sort_reverse else " ▲"
+                tree.heading(column, text=f"{label}{arrow}")
+            else:
+                tree.heading(column, text=label)
+
+    def _sort_customer_tree(self, column):
+        if self.customer_sort_column == column:
+            self.customer_sort_reverse = not self.customer_sort_reverse
+        else:
+            self.customer_sort_column = column
+            self.customer_sort_reverse = False
+
+        self.current_customers = self._sort_items(
+            self.current_customers,
+            column,
+            self.customer_sort_reverse,
+            numeric_columns={"id", "visit_count", "total_price"},
+            date_columns={"last_visit_date", "created_at", "birth"},
+        )
+        self._populate_customer_tree(self.current_customers, update_data=False)
+        self._update_tree_headings(
+            self.customer_tree,
+            self.customer_headings,
+            self.customer_sort_column,
+            self.customer_sort_reverse,
+        )
+
+    def _sort_visit_tree(self, column):
+        if self.visit_sort_column == column:
+            self.visit_sort_reverse = not self.visit_sort_reverse
+        else:
+            self.visit_sort_column = column
+            self.visit_sort_reverse = False
+
+        self.current_visits = self._sort_items(
+            self.current_visits,
+            column,
+            self.visit_sort_reverse,
+            numeric_columns={"visit_id", "customer_id", "price"},
+            date_columns={"date"},
+        )
+        self._populate_visit_tree(self.current_visits, update_data=False)
+        self._update_tree_headings(
+            self.visit_tree,
+            self.visit_headings,
+            self.visit_sort_column,
+            self.visit_sort_reverse,
+        )
+
+    def _populate_customer_tree(self, customers, update_data=True):
+        if update_data:
+            self.current_customers = customers
+
         for item in self.customer_tree.get_children():
             self.customer_tree.delete(item)
 
@@ -388,6 +492,9 @@ class SkinShopApp(tk.Tk):
                     customer["phone"],
                     customer["birth"],
                     customer["skin_type"],
+                    customer.get("last_visit_date", ""),
+                    customer.get("visit_count", "0"),
+                    customer.get("total_price", "0"),
                     customer.get("created_at", ""),
                 ),
             )
@@ -417,8 +524,16 @@ class SkinShopApp(tk.Tk):
         self.customer_memo_var.set(customer["memo"])
 
     def on_load_customers(self):
-        customers = load_customers()
+        customers = load_customers_with_stats()
+        self.customer_sort_column = "id"
+        self.customer_sort_reverse = False
         self._populate_customer_tree(customers)
+        self._update_tree_headings(
+            self.customer_tree,
+            self.customer_headings,
+            self.customer_sort_column,
+            self.customer_sort_reverse,
+        )
         self._refresh_visit_customer_combo()
 
     def on_search_customers(self):
@@ -427,13 +542,21 @@ class SkinShopApp(tk.Tk):
             messagebox.showwarning("입력 오류", "검색어를 입력해주세요.")
             return
 
-        results = search_customers(keyword)
+        results = search_customers_with_stats(keyword)
         if not results:
             messagebox.showinfo("검색 결과", "검색 결과가 없습니다.")
             self._populate_customer_tree([])
             return
 
+        self.customer_sort_column = "id"
+        self.customer_sort_reverse = False
         self._populate_customer_tree(results)
+        self._update_tree_headings(
+            self.customer_tree,
+            self.customer_headings,
+            self.customer_sort_column,
+            self.customer_sort_reverse,
+        )
 
     def on_add_customer(self):
         data = self._get_customer_form_data()
@@ -547,7 +670,10 @@ class SkinShopApp(tk.Tk):
             return None
         return result.data
 
-    def _populate_visit_tree(self, visits):
+    def _populate_visit_tree(self, visits, update_data=True):
+        if update_data:
+            self.current_visits = visits
+
         for item in self.visit_tree.get_children():
             self.visit_tree.delete(item)
 
@@ -588,7 +714,26 @@ class SkinShopApp(tk.Tk):
 
     def on_load_visits(self):
         visits = get_all_visits_with_customer()
-        self._populate_visit_tree(visits)
+        self.visit_sort_column = "date"
+        self.visit_sort_reverse = True
+        self.current_visits = self._sort_items(
+            visits,
+            self.visit_sort_column,
+            self.visit_sort_reverse,
+            numeric_columns={"visit_id", "customer_id", "price"},
+            date_columns={"date"},
+        )
+        self._populate_visit_tree(self.current_visits, update_data=False)
+        self._update_tree_headings(
+            self.visit_tree,
+            self.visit_headings,
+            self.visit_sort_column,
+            self.visit_sort_reverse,
+        )
+
+    def _refresh_after_visit_change(self):
+        self.on_load_visits()
+        self.on_load_customers()
 
     def on_add_visit(self):
         data = self._get_visit_form_data()
@@ -604,7 +749,7 @@ class SkinShopApp(tk.Tk):
         )
         messagebox.showinfo("완료", "방문 기록이 등록되었습니다.")
         self.clear_visit_form()
-        self.on_load_visits()
+        self._refresh_after_visit_change()
 
     def on_update_visit(self):
         check = check_visit_updatable(self.selected_visit_id)
@@ -625,11 +770,12 @@ class SkinShopApp(tk.Tk):
             memo=data["memo"],
         )
         messagebox.showinfo("완료", "방문 기록이 수정되었습니다.")
-        self.on_load_visits()
+        saved_visit_id = self.selected_visit_id
+        self._refresh_after_visit_change()
 
-        if self.visit_tree.exists(self.selected_visit_id):
-            self.visit_tree.selection_set(self.selected_visit_id)
-            self.visit_tree.focus(self.selected_visit_id)
+        if saved_visit_id and self.visit_tree.exists(saved_visit_id):
+            self.visit_tree.selection_set(saved_visit_id)
+            self.visit_tree.focus(saved_visit_id)
             self.on_visit_selected()
 
     def on_delete_visit(self):
@@ -650,7 +796,7 @@ class SkinShopApp(tk.Tk):
         db_delete_visit(self.selected_visit_id)
         messagebox.showinfo("완료", "방문 기록이 삭제되었습니다.")
         self.clear_visit_form()
-        self.on_load_visits()
+        self._refresh_after_visit_change()
 
 
 def main():

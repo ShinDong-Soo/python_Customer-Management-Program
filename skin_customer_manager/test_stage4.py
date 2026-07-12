@@ -120,6 +120,19 @@ def test_backup_and_restore():
     print("[OK] DB 백업/복원")
 
 
+def test_customer_stats():
+    customer_id = db.insert_customer("통계고객", "010-7777-8888", "", "", "", "2025-01-01")
+    db.insert_visit(customer_id, "2025-03-01", "관리A", 50000, "")
+    db.insert_visit(customer_id, "2025-03-15", "관리B", 70000, "")
+
+    customers = db.load_customers_with_stats()
+    target = next(c for c in customers if c["name"] == "통계고객")
+    assert target["last_visit_date"] == "2025-03-15"
+    assert target["visit_count"] == "2"
+    assert target["total_price"] == "120000"
+    print("[OK] 고객 통계(최근 방문일/횟수/금액)")
+
+
 def main():
     setup()
     try:
@@ -131,6 +144,7 @@ def main():
         test_customer_delete_blocked_with_visits()
         test_customer_update_without_selection()
         test_backup_and_restore()
+        test_customer_stats()
         print("\n=== 4단계 보완 테스트 통과 ===")
     finally:
         teardown()

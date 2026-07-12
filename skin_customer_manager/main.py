@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from database import (
-    customer_has_visits,
     delete_customer as db_delete_customer,
     delete_visit as db_delete_visit,
     get_all_visits_with_customer,
@@ -15,6 +14,11 @@ from database import (
     search_customers,
     update_customer as db_update_customer,
     update_visit as db_update_visit,
+)
+from services import (
+    check_customer_deletable,
+    prepare_customer_data,
+    prepare_visit_data,
 )
 from validators import validate_date, validate_price
 
@@ -53,25 +57,23 @@ def require_visit(visit_id):
 
 def add_customer():
     name = input("이름: ").strip()
-    if not name:
-        print("이름은 필수 입력입니다.")
-        return
-
     phone = input("연락처: ").strip()
-    if not phone:
-        print("연락처는 필수 입력입니다.")
-        return
-
     birth = input("생년월일: ")
     skin_type = input("피부 타입: ")
     memo = input("메모: ")
 
+    result = prepare_customer_data(name, phone, birth, skin_type, memo)
+    if not result.ok:
+        print(result.message)
+        return
+
+    data = result.data
     insert_customer(
-        name=name,
-        phone=phone,
-        birth=birth,
-        skin_type=skin_type,
-        memo=memo,
+        name=data["name"],
+        phone=data["phone"],
+        birth=data["birth"],
+        skin_type=data["skin_type"],
+        memo=data["memo"],
         created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     )
 
@@ -123,28 +125,39 @@ def update_customer():
     skin_type = input(f"피부 타입({customer['skin_type']}): ")
     memo = input(f"메모({customer['memo']}): ")
 
-    db_update_customer(
-        customer_id=customer_id,
+    result = prepare_customer_data(
         name=name or customer["name"],
         phone=phone or customer["phone"],
         birth=birth or customer["birth"],
         skin_type=skin_type or customer["skin_type"],
         memo=memo or customer["memo"],
+        exclude_customer_id=customer_id,
+    )
+    if not result.ok:
+        print(result.message)
+        return
+
+    data = result.data
+    db_update_customer(
+        customer_id=customer_id,
+        name=data["name"],
+        phone=data["phone"],
+        birth=data["birth"],
+        skin_type=data["skin_type"],
+        memo=data["memo"],
     )
     print("고객 정보가 수정되었습니다.")
 
 
 def delete_customer():
     customer_id = input("삭제할 고객 ID: ").strip()
-    customer = require_customer(customer_id)
+    check = check_customer_deletable(customer_id)
 
-    if not customer:
+    if not check.ok:
+        print(check.message)
         return
 
-    if customer_has_visits(customer_id):
-        print("해당 고객은 방문 기록이 있어 삭제할 수 없습니다.")
-        print("방문 기록을 먼저 삭제한 후 다시 시도해주세요.")
-        return
+    customer = check.data
 
     confirm = input("정말 삭제하시겠습니까? (Y/N): ")
 
@@ -158,38 +171,23 @@ def delete_customer():
 
 def add_visit():
     customer_id = input("고객 ID: ").strip()
-    customer = require_customer(customer_id)
-
-    if not customer:
-        return
-
     date = input("방문 날짜 (YYYY-MM-DD): ").strip()
-    is_valid_date, normalized_date = validate_date(date)
-
-    if not is_valid_date:
-        print("방문 날짜는 YYYY-MM-DD 형식으로 입력해주세요. (예: 2025-03-12)")
-        return
-
     service = input("시술 내용: ").strip()
-    if not service:
-        print("시술 내용은 필수 입력입니다.")
-        return
-
     price = input("가격: ").strip()
-    is_valid_price, normalized_price = validate_price(price)
-
-    if not is_valid_price:
-        print("가격은 0 이상의 숫자로 입력해주세요.")
-        return
-
     memo = input("메모: ")
 
+    result = prepare_visit_data(customer_id, date, service, price, memo)
+    if not result.ok:
+        print(result.message)
+        return
+
+    data = result.data
     insert_visit(
-        customer_id=customer_id,
-        date=normalized_date,
-        service=service,
-        price=normalized_price,
-        memo=memo,
+        customer_id=data["customer_id"],
+        date=data["date"],
+        service=data["service"],
+        price=data["price"],
+        memo=data["memo"],
     )
 
     print("방문 기록이 등록되었습니다.")

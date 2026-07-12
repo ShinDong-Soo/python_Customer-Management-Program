@@ -95,6 +95,30 @@ def get_customer_by_id(customer_id):
     return _row_to_customer(row)
 
 
+def get_customer_by_phone(phone, exclude_customer_id=None):
+    phone = (phone or "").strip()
+    if not phone:
+        return None
+
+    conn = get_connection()
+    if exclude_customer_id and str(exclude_customer_id).isdigit():
+        row = conn.execute(
+            "SELECT * FROM customers WHERE phone = ? AND id != ?",
+            (phone, int(exclude_customer_id)),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM customers WHERE phone = ?",
+            (phone,),
+        ).fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return _row_to_customer(row)
+
+
 def insert_customer(name, phone, birth, skin_type, memo, created_at):
     conn = get_connection()
     cursor = conn.execute(

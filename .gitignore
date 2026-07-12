@@ -221,3 +221,4 @@ __marimo__/
 skin_customer_manager/customers.csv
 skin_customer_manager/visits.csv
 skin_customer_manager/skin_shop.db
+skin_customer_manager/backup/

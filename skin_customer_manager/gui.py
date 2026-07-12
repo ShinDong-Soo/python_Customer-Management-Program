@@ -2,8 +2,8 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox, ttk
 
+from backup import create_backup, list_backups, restore_backup
 from database import (
-    customer_has_visits,
     delete_customer as db_delete_customer,
     delete_visit as db_delete_visit,
     get_all_visits_with_customer,
@@ -17,7 +17,14 @@ from database import (
     update_customer as db_update_customer,
     update_visit as db_update_visit,
 )
-from validators import validate_date, validate_price
+from services import (
+    check_customer_deletable,
+    check_customer_updatable,
+    check_visit_deletable,
+    check_visit_updatable,
+    prepare_customer_data,
+    prepare_visit_data,
+)
 
 
 class SkinShopApp(tk.Tk):
@@ -53,6 +60,8 @@ class SkinShopApp(tk.Tk):
         self.selected_visit_id = None
 
     def _create_widgets(self):
+        self._create_backup_bar()
+
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -64,6 +73,16 @@ class SkinShopApp(tk.Tk):
 
         self._build_customer_tab()
         self._build_visit_tab()
+
+    def _create_backup_bar(self):
+        bar = ttk.Frame(self, padding=(10, 10, 10, 0))
+        bar.pack(fill=tk.X)
+
+        ttk.Label(bar, text="데이터 관리").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(bar, text="DB 백업", command=self.on_backup_db).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(bar, text="백업 복원", command=self.on_restore_db).pack(side=tk.LEFT)
 
     def _build_customer_tab(self):
         form_frame = ttk.LabelFrame(self.customer_tab, text="고객 정보", padding=10)
@@ -273,25 +292,86 @@ class SkinShopApp(tk.Tk):
         self.selected_customer_id = None
         self.customer_tree.selection_remove(self.customer_tree.selection())
 
-    def _get_customer_form_data(self):
-        name = self.customer_name_var.get().strip()
-        phone = self.customer_phone_var.get().strip()
-
-        if not name:
-            messagebox.showwarning("입력 오류", "이름은 필수 입력입니다.")
+    def _get_customer_form_data(self, exclude_customer_id=None):
+        result = prepare_customer_data(
+            name=self.customer_name_var.get(),
+            phone=self.customer_phone_var.get(),
+            birth=self.customer_birth_var.get(),
+            skin_type=self.customer_skin_type_var.get(),
+            memo=self.customer_memo_var.get(),
+            exclude_customer_id=exclude_customer_id,
+        )
+        if not result.ok:
+            messagebox.showwarning("입력 오류", result.message)
             return None
+        return result.data
 
-        if not phone:
-            messagebox.showwarning("입력 오류", "연락처는 필수 입력입니다.")
-            return None
+    def on_backup_db(self):
+        try:
+            backup_path = create_backup()
+            messagebox.showinfo("백업 완료", f"백업 파일이 생성되었습니다.\n{backup_path}")
+        except FileNotFoundError as error:
+            messagebox.showwarning("백업 실패", str(error))
 
-        return {
-            "name": name,
-            "phone": phone,
-            "birth": self.customer_birth_var.get().strip(),
-            "skin_type": self.customer_skin_type_var.get().strip(),
-            "memo": self.customer_memo_var.get().strip(),
-        }
+    def on_restore_db(self):
+        backups = list_backups()
+        if not backups:
+            messagebox.showinfo("복원", "백업 파일이 없습니다.")
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title("백업 복원")
+        dialog.geometry("420x300")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="복원할 백업 파일을 선택하세요.").pack(
+            anchor=tk.W, padx=12, pady=(12, 6)
+        )
+
+        listbox = tk.Listbox(dialog, height=10)
+        listbox.pack(fill=tk.BOTH, expand=True, padx=12, pady=6)
+        for backup_name in backups:
+            listbox.insert(tk.END, backup_name)
+        if backups:
+            listbox.selection_set(0)
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
+
+        def restore_selected():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("선택 오류", "복원할 백업 파일을 선택해주세요.")
+                return
+
+            backup_name = listbox.get(selection[0])
+            confirmed = messagebox.askyesno(
+                "복원 확인",
+                f"현재 DB를 '{backup_name}' 파일로 복원합니다.\n"
+                "현재 데이터는 덮어씌워집니다. 계속하시겠습니까?",
+                parent=dialog,
+            )
+            if not confirmed:
+                return
+
+            try:
+                restore_backup(backup_name)
+            except FileNotFoundError as error:
+                messagebox.showwarning("복원 실패", str(error), parent=dialog)
+                return
+
+            messagebox.showinfo("복원 완료", "DB가 복원되었습니다.", parent=dialog)
+            dialog.destroy()
+            self.clear_customer_form()
+            self.clear_visit_form()
+            self.on_load_customers()
+            self.on_load_visits()
+
+        ttk.Button(button_frame, text="복원", command=restore_selected).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(button_frame, text="닫기", command=dialog.destroy).pack(side=tk.LEFT)
 
     def _populate_customer_tree(self, customers):
         for item in self.customer_tree.get_children():
@@ -373,11 +453,12 @@ class SkinShopApp(tk.Tk):
         self.on_load_customers()
 
     def on_update_customer(self):
-        if not self.selected_customer_id:
-            messagebox.showwarning("선택 오류", "수정할 고객을 목록에서 선택해주세요.")
+        check = check_customer_updatable(self.selected_customer_id)
+        if not check.ok:
+            messagebox.showwarning("선택 오류", check.message)
             return
 
-        data = self._get_customer_form_data()
+        data = self._get_customer_form_data(exclude_customer_id=self.selected_customer_id)
         if not data:
             return
 
@@ -398,22 +479,12 @@ class SkinShopApp(tk.Tk):
             self.on_customer_selected()
 
     def on_delete_customer(self):
-        if not self.selected_customer_id:
-            messagebox.showwarning("선택 오류", "삭제할 고객을 목록에서 선택해주세요.")
+        check = check_customer_deletable(self.selected_customer_id)
+        if not check.ok:
+            messagebox.showwarning("삭제 불가" if "방문 기록" in check.message else "선택 오류", check.message)
             return
 
-        customer = get_customer_by_id(self.selected_customer_id)
-        if not customer:
-            messagebox.showwarning("오류", "해당 고객을 찾을 수 없습니다.")
-            return
-
-        if customer_has_visits(self.selected_customer_id):
-            messagebox.showwarning(
-                "삭제 불가",
-                "해당 고객은 방문 기록이 있어 삭제할 수 없습니다.\n"
-                "방문 기록을 먼저 삭제한 후 다시 시도해주세요.",
-            )
-            return
+        customer = check.data
 
         confirmed = messagebox.askyesno(
             "삭제 확인",
@@ -461,36 +532,20 @@ class SkinShopApp(tk.Tk):
 
     def _get_visit_form_data(self):
         customer_id = self._get_selected_visit_customer_id()
-        if not customer_id:
+        if customer_id is None:
             return None
 
-        date = self.visit_date_var.get().strip()
-        is_valid_date, normalized_date = validate_date(date)
-        if not is_valid_date:
-            messagebox.showwarning(
-                "입력 오류",
-                "방문 날짜는 YYYY-MM-DD 형식으로 입력해주세요.\n(예: 2025-03-12)",
-            )
+        result = prepare_visit_data(
+            customer_id=customer_id,
+            date=self.visit_date_var.get(),
+            service=self.visit_service_var.get(),
+            price=self.visit_price_var.get(),
+            memo=self.visit_memo_var.get(),
+        )
+        if not result.ok:
+            messagebox.showwarning("입력 오류", result.message)
             return None
-
-        service = self.visit_service_var.get().strip()
-        if not service:
-            messagebox.showwarning("입력 오류", "시술 내용은 필수 입력입니다.")
-            return None
-
-        price = self.visit_price_var.get().strip()
-        is_valid_price, normalized_price = validate_price(price)
-        if not is_valid_price:
-            messagebox.showwarning("입력 오류", "가격은 0 이상의 숫자로 입력해주세요.")
-            return None
-
-        return {
-            "customer_id": customer_id,
-            "date": normalized_date,
-            "service": service,
-            "price": normalized_price,
-            "memo": self.visit_memo_var.get().strip(),
-        }
+        return result.data
 
     def _populate_visit_tree(self, visits):
         for item in self.visit_tree.get_children():
@@ -552,8 +607,9 @@ class SkinShopApp(tk.Tk):
         self.on_load_visits()
 
     def on_update_visit(self):
-        if not self.selected_visit_id:
-            messagebox.showwarning("선택 오류", "수정할 방문 기록을 목록에서 선택해주세요.")
+        check = check_visit_updatable(self.selected_visit_id)
+        if not check.ok:
+            messagebox.showwarning("선택 오류", check.message)
             return
 
         data = self._get_visit_form_data()
@@ -577,14 +633,12 @@ class SkinShopApp(tk.Tk):
             self.on_visit_selected()
 
     def on_delete_visit(self):
-        if not self.selected_visit_id:
-            messagebox.showwarning("선택 오류", "삭제할 방문 기록을 목록에서 선택해주세요.")
+        check = check_visit_deletable(self.selected_visit_id)
+        if not check.ok:
+            messagebox.showwarning("선택 오류", check.message)
             return
 
-        visit = get_visit_by_id(self.selected_visit_id)
-        if not visit:
-            messagebox.showwarning("오류", "해당 방문 기록을 찾을 수 없습니다.")
-            return
+        visit = check.data
 
         confirmed = messagebox.askyesno(
             "삭제 확인",

@@ -3,8 +3,10 @@ from datetime import datetime
 from database import (
     customer_has_visits,
     delete_customer as db_delete_customer,
+    delete_visit as db_delete_visit,
     get_all_visits_with_customer,
     get_customer_by_id,
+    get_visit_by_id,
     get_visits_with_customer_by_id,
     initialize_database,
     insert_customer,
@@ -12,7 +14,9 @@ from database import (
     load_customers,
     search_customers,
     update_customer as db_update_customer,
+    update_visit as db_update_visit,
 )
+from validators import validate_date, validate_price
 
 
 def require_customer(customer_id):
@@ -31,24 +35,20 @@ def require_customer(customer_id):
     return customer
 
 
-def validate_date(date_str):
-    try:
-        parsed = datetime.strptime(date_str, "%Y-%m-%d")
-        return True, parsed.strftime("%Y-%m-%d")
-    except ValueError:
-        return False, None
+def require_visit(visit_id):
+    visit_id = visit_id.strip()
 
+    if not visit_id:
+        print("방문 ID를 입력해주세요.")
+        return None
 
-def validate_price(price_str):
-    if not price_str.isdigit():
-        return False, None
+    visit = get_visit_by_id(visit_id)
 
-    price = int(price_str)
+    if not visit:
+        print("해당 ID의 방문 기록을 찾을 수 없습니다.")
+        return None
 
-    if price < 0:
-        return False, None
-
-    return True, str(price)
+    return visit
 
 
 def add_customer():
@@ -195,6 +195,85 @@ def add_visit():
     print("방문 기록이 등록되었습니다.")
 
 
+def update_visit_record():
+    visit_id = input("수정할 방문 ID: ").strip()
+    visit = require_visit(visit_id)
+
+    if not visit:
+        return
+
+    customer = get_customer_by_id(visit["customer_id"])
+    customer_name = customer["name"] if customer else visit["customer_id"]
+
+    print(f"\n현재 방문 기록 — 고객: {customer_name}")
+    print_visit(visit)
+    print("수정하지 않을 항목은 Enter만 누르세요.")
+
+    customer_id = input(f"고객 ID({visit['customer_id']}): ").strip()
+    if customer_id:
+        selected_customer = require_customer(customer_id)
+        if not selected_customer:
+            return
+    else:
+        customer_id = visit["customer_id"]
+
+    date = input(f"방문 날짜({visit['date']}): ").strip()
+    if date:
+        is_valid_date, normalized_date = validate_date(date)
+        if not is_valid_date:
+            print("방문 날짜는 YYYY-MM-DD 형식으로 입력해주세요. (예: 2025-03-12)")
+            return
+    else:
+        normalized_date = visit["date"]
+
+    service = input(f"시술 내용({visit['service']}): ").strip() or visit["service"]
+    if not service:
+        print("시술 내용은 필수 입력입니다.")
+        return
+
+    price = input(f"가격({visit['price']}): ").strip()
+    if price:
+        is_valid_price, normalized_price = validate_price(price)
+        if not is_valid_price:
+            print("가격은 0 이상의 숫자로 입력해주세요.")
+            return
+    else:
+        normalized_price = visit["price"]
+
+    memo = input(f"메모({visit['memo']}): ")
+    if not memo:
+        memo = visit["memo"]
+
+    db_update_visit(
+        visit_id=visit_id,
+        customer_id=customer_id,
+        date=normalized_date,
+        service=service,
+        price=normalized_price,
+        memo=memo,
+    )
+    print("방문 기록이 수정되었습니다.")
+
+
+def delete_visit_record():
+    visit_id = input("삭제할 방문 ID: ").strip()
+    visit = require_visit(visit_id)
+
+    if not visit:
+        return
+
+    print_visit(visit)
+
+    confirm = input("정말 삭제하시겠습니까? (Y/N): ")
+
+    if confirm.upper() != "Y":
+        print("삭제가 취소되었습니다.")
+        return
+
+    db_delete_visit(visit_id)
+    print("방문 기록이 삭제되었습니다.")
+
+
 def show_customer_visits():
     customer_id = input("고객 ID: ").strip()
 
@@ -253,6 +332,8 @@ def show_menu():
     print("6. 방문 기록 등록")
     print("7. 고객별 방문 기록 조회")
     print("8. 전체 방문 기록 조회 (JOIN)")
+    print("9. 방문 기록 수정")
+    print("10. 방문 기록 삭제")
     print("0. 종료")
 
 
@@ -299,6 +380,10 @@ def main():
             show_customer_visits()
         elif choice == "8":
             show_all_visits_with_customer()
+        elif choice == "9":
+            update_visit_record()
+        elif choice == "10":
+            delete_visit_record()
         elif choice == "0":
             print("프로그램을 종료합니다.")
             break

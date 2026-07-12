@@ -78,7 +78,23 @@ def test_visit_crud():
     assert len(visits) >= 1
     assert visits[-1]["service"] == "딥클렌징"
     assert db.customer_has_visits(cid)
-    print("[OK] SQL CRUD (visits Create/Read)")
+
+    visit_id = visits[-1]["visit_id"]
+    visit = db.get_visit_by_id(visit_id)
+    assert visit is not None
+    assert visit["service"] == "딥클렌징"
+
+    db.update_visit(visit_id, cid, "2025-03-11", "수분관리", 60000, "수정됨")
+    updated = db.get_visit_by_id(visit_id)
+    assert updated["date"] == "2025-03-11"
+    assert updated["service"] == "수분관리"
+    assert updated["price"] == "60000"
+    assert updated["memo"] == "수정됨"
+
+    db.delete_visit(visit_id)
+    assert db.get_visit_by_id(visit_id) is None
+    assert not db.customer_has_visits(cid)
+    print("[OK] SQL CRUD (visits Create/Read/Update/Delete)")
 
 
 def test_search():
@@ -95,6 +111,7 @@ def test_search():
 
 def test_join():
     kim = next(c for c in db.load_customers() if c["name"] == "김민지2")
+    db.insert_visit(kim["id"], "2025-03-12", "필링", 70000, "JOIN 테스트")
     customer, visits = db.get_visits_with_customer_by_id(kim["id"])
     assert customer is not None
     assert len(visits) >= 1

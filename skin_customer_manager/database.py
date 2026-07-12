@@ -165,6 +165,46 @@ def insert_visit(customer_id, date, service, price, memo):
     conn.close()
 
 
+def get_visit_by_id(visit_id):
+    if not str(visit_id).isdigit():
+        return None
+
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM visits WHERE id = ?",
+        (int(visit_id),),
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return _row_to_visit(row)
+
+
+def update_visit(visit_id, customer_id, date, service, price, memo):
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE visits
+        SET customer_id = ?, date = ?, service = ?, price = ?, memo = ?
+        WHERE id = ?
+        """,
+        (int(customer_id), date, service, int(price), memo, int(visit_id)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_visit(visit_id):
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM visits WHERE id = ?", (int(visit_id),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def search_customers(keyword):
     conn = get_connection()
     pattern = f"%{keyword}%"

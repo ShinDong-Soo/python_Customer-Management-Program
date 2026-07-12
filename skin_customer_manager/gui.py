@@ -502,7 +502,7 @@ class SkinShopApp(tk.Tk):
         self.customer_table_frame.configure(text=f"고객 목록 — 총 {len(customers)}명")
 
     def _refresh_visit_customer_combo(self):
-        customers = load_customers()
+        customers = self.current_customers or load_customers_with_stats()
         options = [f"{customer['id']} - {customer['name']}" for customer in customers]
         self.visit_customer_combo["values"] = options
 
